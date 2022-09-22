@@ -3,10 +3,18 @@ from math import sqrt
 import random
 import os
 
+def pbcDelta(a, b, side):
+    delta = abs((a % side) - (b % side))
+    return min(delta, side - delta)
+
 # Calculate euclidian distance between vectors p and q
-def dist(p, q):
+def dist(p, q, b = None):
     assert len(p) == len(q), "Vectors not the same length"
-    return sqrt(sum((p[i] - q[i])**2 for i in range(len(p))))
+    return sqrt(sum((
+        (p[i] - q[i]) if b is None else (
+            pbcDelta(p[i], q[i], b[i])
+        )
+    )**2 for i in range(len(p))))
 
 # Calculate magnitude (length) of vector p
 def magnitude(p):
@@ -27,10 +35,10 @@ def cross(p, q):
     ]
 
 # Add `count` particles to the configuration
-def addToConf(confLines, count, minDist=1):
+def addToConf(confLines, count, minDist=1.5):
     # Find box dimensions
     assert confLines[1][0] == 'b', "Did not find box in second row of config"
-    bX, bY, bZ = [float(b) for b in confLines[1].split()[-3:]]
+    box = [float(b) for b in confLines[1].split()[-3:]]
 
     # Keep track of particle positions
     positions = [[float(v) for v in l.split()[:3]] for l in confLines[3:]]
@@ -40,16 +48,15 @@ def addToConf(confLines, count, minDist=1):
         tries = 0
         while True:
             # Position is randomly selected within the simulation box
-            p = [random.uniform(0, b) for b in [bX, bY, bZ]]
+            p = [random.uniform(0, b) for b in box]
             for q in positions:
-                if dist(p,q) < minDist:
+                if dist(p,q, box) < minDist:
                     # Distance too small, find another random position
                     tries += 1
-                    if tries >= 1e5:
+                    if tries >= 1e6:
                         raise RuntimeError(f"Tried {tries} times and still couldn't find room for another particle. Try increasing the box size (or decreasing minDist)")
                     break
             else:
-                print(f"Checked {len(positions)} positions ({tries} tries)")
                 # Got through the whole for loop without breaking
                 # All distances were sufficiently large
                 positions.append(p)

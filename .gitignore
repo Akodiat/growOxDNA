@@ -1,6 +1,7 @@
 # Generated simulation stage folders and input files
 stage*/
 input_*
+combined/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
