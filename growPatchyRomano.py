@@ -89,7 +89,7 @@ def addToTop(topLines, count, speciesId):
     topLines[1] += ' '.join(str(speciesId) for _ in range(count))
 
 
-def grow(speciesId, count, topPath, confPath, stagePath, inputPath):
+def grow(speciesId, count, topPath, confPath, stagePath, inputPath, nSteps):
     # Read empty topology and configuration files
     with open(topPath, "r") as f:
         topLines = f.readlines()
@@ -115,7 +115,11 @@ def grow(speciesId, count, topPath, confPath, stagePath, inputPath):
     inputDir = os.path.dirname(inputPath)
     relStagePath = os.path.relpath(stagePath, inputDir)
     with open(inputPath, "r") as f:
-        inputLines = [line.replace("[stage]", relStagePath) for line in f]
+        inputLines = [line.replace(
+            "[stage]", relStagePath
+        ).replace(
+            "[nSteps]", nSteps
+        ) for line in f]
     with open(os.path.join(inputDir, "input_"+relStagePath), "w") as f:
         f.writelines(inputLines)
 
@@ -130,6 +134,7 @@ if __name__ == "__main__":
     parser.add_argument("confPath", help="Path to input configuration to grow from")
     parser.add_argument("stagePath", help="Path at which to create simulation stage directory")
     parser.add_argument("inputPath", help="Path to input file template to use")
+    parser.add_argument("nSteps", help="Number of steps to set in the input file")
     args = parser.parse_args()
 
     grow(
@@ -138,5 +143,6 @@ if __name__ == "__main__":
         args.topPath,
         args.confPath,
         args.stagePath,
-        args.inputPath
+        args.inputPath,
+        args.nSteps
     )
