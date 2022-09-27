@@ -1,4 +1,3 @@
-from logging import error
 from math import sqrt
 import random
 import os
@@ -35,13 +34,42 @@ def cross(p, q):
     ]
 
 # Add `count` particles to the configuration
-def addToConf(confLines, count, minDist=1.5):
+def addToConf(confLines, count, minDist=1.5, targetDensity=None):
     # Find box dimensions
     assert confLines[1][0] == 'b', "Did not find box in second row of config"
     box = [float(b) for b in confLines[1].split()[-3:]]
 
+    # Bring everything into bounding box
+    # (so as not to mess upp if the box size changes)
+    for i in range(len(confLines)):
+        vs = confLines[i].split(' ')
+        if len(vs) == 15:
+            for j in range(3):
+                vs[j] = str(float(vs[j]) % box[j])
+            confLines[i] = ' '.join(vs)
+
     # Keep track of particle positions
     positions = [[float(v) for v in l.split()[:3]] for l in confLines[3:]]
+
+    # Update density
+    currentVolume = box[0]*box[1]*box[2]
+    if not targetDensity:
+        if len(positions) > 0:
+            # Default to current density if we have particles already
+            targetDensity = len(positions) / currentVolume
+        elif currentVolume > 0:
+            # Or keep the volume as set if the config is empty
+            targetDensity = (count+len(positions)) / currentVolume
+        else:
+            # Or just default to 0.1
+            targetDensity = 0.1
+    targetVolume = (count+len(positions)) / targetDensity
+    scalingFactor = targetVolume/currentVolume
+    assert scalingFactor >= 1, "Shrinking the bounding box is not safe, decrease your target density or leave it as is"
+    sideScalingFactor = scalingFactor ** (1/3)
+    box = [v*sideScalingFactor for v in box]
+    confLines[1] = f"b = {box[0]} {box[1]} {box[2]}\n"
+
     # Add "count" particles to the configuration
     for _ in range(count):
         # Make sure position is not too close to any other particle
@@ -89,7 +117,7 @@ def addToTop(topLines, count, speciesId):
     topLines[1] += ' '.join(str(speciesId) for _ in range(count))
 
 
-def grow(speciesId, count, topPath, confPath, stagePath, inputPath, nSteps):
+def grow(speciesId, count, topPath, confPath, stagePath, inputPath, nSteps, targetDensity):
     # Read empty topology and configuration files
     with open(topPath, "r") as f:
         topLines = f.readlines()
@@ -100,7 +128,7 @@ def grow(speciesId, count, topPath, confPath, stagePath, inputPath, nSteps):
     addToTop(topLines, count, speciesId)
 
     # Update configuration:
-    addToConf(confLines, count)
+    addToConf(confLines, count, targetDensity=targetDensity)
 
     # Create subdirectory
     os.makedirs(stagePath, exist_ok = True)
@@ -135,6 +163,7 @@ if __name__ == "__main__":
     parser.add_argument("stagePath", help="Path at which to create simulation stage directory")
     parser.add_argument("inputPath", help="Path to input file template to use")
     parser.add_argument("nSteps", help="Number of steps to set in the input file")
+    parser.add_argument("-d", "--density", help="Target density for the configuration", type=float)
     args = parser.parse_args()
 
     grow(
@@ -144,5 +173,6 @@ if __name__ == "__main__":
         args.confPath,
         args.stagePath,
         args.inputPath,
-        args.nSteps
+        args.nSteps,
+        args.density
     )
