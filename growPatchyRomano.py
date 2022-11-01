@@ -1,4 +1,4 @@
-from math import sqrt
+import math
 import random
 import os
 
@@ -9,7 +9,7 @@ def pbcDelta(a, b, side):
 # Calculate euclidian distance between vectors p and q
 def dist(p, q, b = None):
     assert len(p) == len(q), "Vectors not the same length"
-    return sqrt(sum((
+    return math.sqrt(sum((
         (p[i] - q[i]) if b is None else (
             pbcDelta(p[i], q[i], b[i])
         )
@@ -17,7 +17,7 @@ def dist(p, q, b = None):
 
 # Calculate magnitude (length) of vector p
 def magnitude(p):
-    return sqrt(sum(p[i]**2 for i in range(len(p))))
+    return math.sqrt(sum(p[i]**2 for i in range(len(p))))
 
 # Normalize vector p
 def norm(p):
@@ -33,42 +33,93 @@ def cross(p, q):
         p[0]*q[1] - p[1]*q[0]
     ]
 
+def add(p, q):
+    assert len(p) == len(q), "Vectors not the same length"
+    return [p[i] + q[i] for i in range(len(p))]
+
+
+def divideScalar(p, s):
+    return [p[i]/s for i in range(len(p))]
+
+# Calculate center of mass taking periodic boundary conditions into account:
+# https://doi.org/10.1080/2151237X.2008.10129266
+# https://en.wikipedia.org/wiki/Center_of_mass#Systems_with_periodic_boundary_conditions
+def calcCOM(positions, box):
+    if len(positions) == 0:
+        return [0, 0, 0]
+
+    cm_x = [0, 0]
+    cm_y = [0, 0]
+    cm_z = [0, 0]
+
+    for p in positions:
+        # Calculate positions on unit circle for each dimension and that to the
+        # sum.
+        angle = [
+            (p[0] * 2 * math.pi) / box[0],
+            (p[1] * 2 * math.pi) / box[1],
+            (p[2] * 2 * math.pi) / box[2]
+        ]
+        cm_x = add(cm_x, [math.cos(angle[0]), math.sin(angle[0])])
+        cm_y = add(cm_y, [math.cos(angle[1]), math.sin(angle[1])])
+        cm_z = add(cm_z, [math.cos(angle[2]), math.sin(angle[2])])
+
+    # Divide center of mass sums to get the averages
+    cm_x = divideScalar(cm_x, len(positions))
+    cm_y = divideScalar(cm_y, len(positions))
+    cm_z = divideScalar(cm_z, len(positions))
+
+    # Convert back from unit circle coordinates into x,y,z
+    cms = [
+        box[0] / (2 * math.pi) * (math.atan2(-cm_x[1], -cm_x[0]) + math.pi),
+        box[1] / (2 * math.pi) * (math.atan2(-cm_y[1], -cm_y[0]) + math.pi),
+        box[2] / (2 * math.pi) * (math.atan2(-cm_z[1], -cm_z[0]) + math.pi)
+    ]
+
+    return cms
+
 # Add `count` particles to the configuration
-def addToConf(confLines, count, minDist=1.5, targetDensity=None):
+def addToConf(confLines, count, minDist=1.5, targetDensity=None, preserveBox=True):
     # Find box dimensions
     assert confLines[1][0] == 'b', "Did not find box in second row of config"
     box = [float(b) for b in confLines[1].split()[-3:]]
 
-    # Bring everything into bounding box
-    # (so as not to mess upp if the box size changes)
-    for i in range(len(confLines)):
-        vs = confLines[i].split(' ')
-        if len(vs) == 15:
-            for j in range(3):
-                vs[j] = str(float(vs[j]) % box[j])
-            confLines[i] = ' '.join(vs)
+    if not preserveBox:
+        cms = calcCOM([[float(v) for v in l.split()[:3]] for l in confLines[3:]], box)
 
-    # Keep track of particle positions
-    positions = [[float(v) for v in l.split()[:3]] for l in confLines[3:]]
+        # Apply centering and bring everything into bounding box
+        # (so as not to mess up if the box size changes)
+        for i in range(len(confLines)):
+            vs = confLines[i].split(' ')
+            if len(vs) == 15:
+                for j in range(3):
+                    vs[j] = str((float(vs[j])-cms[j]) % box[j])
+                confLines[i] = ' '.join(vs)
 
-    # Update density
-    currentVolume = box[0]*box[1]*box[2]
-    if not targetDensity:
-        if len(positions) > 0:
-            # Default to current density if we have particles already
-            targetDensity = len(positions) / currentVolume
-        elif currentVolume > 0:
-            # Or keep the volume as set if the config is empty
-            targetDensity = (count+len(positions)) / currentVolume
-        else:
-            # Or just default to 0.1
-            targetDensity = 0.1
-    targetVolume = (count+len(positions)) / targetDensity
-    scalingFactor = targetVolume/currentVolume
-    assert scalingFactor >= 1, "Shrinking the bounding box is not safe, decrease your target density or leave it as is"
-    sideScalingFactor = scalingFactor ** (1/3)
-    box = [v*sideScalingFactor for v in box]
-    confLines[1] = f"b = {box[0]} {box[1]} {box[2]}\n"
+        # Keep track of particle positions
+        positions = [[float(v) for v in l.split()[:3]] for l in confLines[3:]]
+
+        # Update density
+        currentVolume = box[0]*box[1]*box[2]
+        if not targetDensity:
+            if len(positions) > 0:
+                # Default to current density if we have particles already
+                targetDensity = len(positions) / currentVolume
+            elif currentVolume > 0:
+                # Or keep the volume as set if the config is empty
+                targetDensity = (count+len(positions)) / currentVolume
+            else:
+                # Or just default to 0.1
+                targetDensity = 0.1
+        targetVolume = (count+len(positions)) / targetDensity
+        scalingFactor = targetVolume/currentVolume
+        assert scalingFactor >= 1, "Shrinking the bounding box is not safe, decrease your target density or leave it as is"
+        sideScalingFactor = scalingFactor ** (1/3)
+        box = [v*sideScalingFactor for v in box]
+        confLines[1] = f"b = {box[0]} {box[1]} {box[2]}\n"
+        print(f"Increasing the box size to {box}")
+    else:
+        positions = [[float(v) for v in l.split()[:3]] for l in confLines[3:]]
 
     # Add "count" particles to the configuration
     for _ in range(count):
@@ -117,7 +168,7 @@ def addToTop(topLines, count, speciesId):
     topLines[1] += ' '.join(str(speciesId) for _ in range(count))
 
 
-def grow(speciesId, count, topPath, confPath, stagePath, inputPath, nSteps, targetDensity):
+def grow(speciesId, count, topPath, confPath, stagePath, inputPath, nSteps, targetDensity, preserveBox=False):
     # Read empty topology and configuration files
     with open(topPath, "r") as f:
         topLines = f.readlines()
@@ -128,7 +179,7 @@ def grow(speciesId, count, topPath, confPath, stagePath, inputPath, nSteps, targ
     addToTop(topLines, count, speciesId)
 
     # Update configuration:
-    addToConf(confLines, count, targetDensity=targetDensity)
+    addToConf(confLines, count, targetDensity=targetDensity, preserveBox=preserveBox)
 
     # Create subdirectory
     os.makedirs(stagePath, exist_ok = True)
@@ -164,6 +215,7 @@ if __name__ == "__main__":
     parser.add_argument("inputPath", help="Path to input file template to use")
     parser.add_argument("nSteps", help="Number of steps to set in the input file")
     parser.add_argument("-d", "--density", help="Target density for the configuration", type=float)
+    parser.add_argument("--preserveBox", help="Preserve the box size (don't increase it to maintain a constant density)", action="store_true")
     args = parser.parse_args()
 
     grow(
@@ -174,5 +226,6 @@ if __name__ == "__main__":
         args.stagePath,
         args.inputPath,
         args.nSteps,
-        args.density
+        args.density,
+        args.preserveBox
     )
